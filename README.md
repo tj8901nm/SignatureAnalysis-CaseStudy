@@ -5,7 +5,7 @@ signature analysis paper.
 
 The ADAGE signature analysis was performed in R using the
 [ADAGEpath](https://github.com/greenelab/ADAGEpath) package.
-We also performed the GSEA analysis as an comparison.
+We also performed the GSEA analysis as a comparison.
 
 Here are the steps to repeat the analysis:
 
