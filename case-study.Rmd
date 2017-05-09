@@ -312,6 +312,11 @@ We also perform a GSEA analysis on this dataset.
 ```{r}
 # specifiy file path to the GSEA java program
 GSEA_file <- "gsea2-2.2.4.jar"
+if (!file.exists(GSEA_file)){
+  stop("Please check the file path to the GSEA java program and make sure
+       it is correct!")
+}
+  
 # prefix of the folder that stores GSEA results
 GSEA_output_name <- "GSEA_result"
 # folder to store GSEA data and results
@@ -323,60 +328,52 @@ if (dir.exists(GSEA_folder)) {
 }
 dir.create(GSEA_folder, showWarnings = TRUE)
 
+# create the class lable file for gsea
+label_file <- file.path(GSEA_folder, "label.cls")
+write(paste(length(data_pheno), length(unique(data_pheno)), 1, sep = " "),
+      file = label_file)
+write("# con1 con2", file = label_file, append = TRUE)
+write(paste(data_pheno, collapse = " "), label_file, append=TRUE)
 
-if (file.exists(GSEA_file)){
+# create the gene expression file for gsea
+expression_file <- file.path(GSEA_folder, "expression.txt")
+readr::write_tsv(data_raw, expression_file, col_names = TRUE)
 
-  # create the class lable file for gsea
-  label_file <- file.path(GSEA_folder, "label.cls")
-  write(paste(length(data_pheno), length(unique(data_pheno)), 1, sep = " "),
-        file = label_file)
-  write("# con1 con2", file = label_file, append = TRUE)
-  write(paste(data_pheno, collapse = " "), label_file, append=TRUE)
-  
-  # create the gene expression file for gsea
-  expression_file <- file.path(GSEA_folder, "expression.txt")
-  readr::write_tsv(data_raw, expression_file, col_names = TRUE)
+# create the gene set file for gsea
+geneset_file <- file.path(GSEA_folder, "geneset.gmt")
+write(paste(names(KEGG_subset)[1], "na", paste(unlist(KEGG_subset[[1]]),
+                                               collapse = "\t"), sep = "\t"),
+      file = geneset_file)
+invisible(sapply(2:length(KEGG_subset),
+                 function(x) write(paste(names(KEGG_subset)[x], "na",
+                                         paste(unlist(KEGG_subset[[x]]),
+                                               collapse = "\t"), sep = "\t"),
+                                   file = geneset_file, append = TRUE)))
 
-  # create the gene set file for gsea
-  geneset_file <- file.path(GSEA_folder, "geneset.gmt")
-  write(paste(names(KEGG_subset)[1], "na", paste(unlist(KEGG_subset[[1]]),
-                                                 collapse = "\t"), sep = "\t"),
-        file = geneset_file)
-  invisible(sapply(2:length(KEGG_subset),
-                   function(x) write(paste(names(KEGG_subset)[x], "na",
-                                           paste(unlist(KEGG_subset[[x]]),
-                                                 collapse = "\t"), sep = "\t"),
-                                     file = geneset_file, append = TRUE)))
+# run GSEA
+gsea <- paste0("java -Xmx512m -cp ", GSEA_file, " xtools.gsea.Gsea -res ",
+               expression_file," -cls ",label_file," -gmx ",geneset_file,
+               " -collapse false -mode Max_probe -norm meandiv -nperm 1000 ",
+               "-permute gene_set -rnd_type no_balance -scoring_scheme weighted ",
+               "-rpt_label ", GSEA_output_name ," -metric Signal2Noise -sort real ",
+               "-order descending -include_only_symbols true -make_sets true ",
+               "-median false -num 100 -plot_top_x 20 -rnd_seed timestamp ",
+               "-save_rnd_lists false -set_max 100 -set_min 5 -zip_report false ",
+               "-out ", GSEA_folder, " -gui false")
+system(gsea)
 
-  # run GSEA
-  gsea <- paste0("java -Xmx512m -cp ", GSEA_file, " xtools.gsea.Gsea -res ",
-                expression_file," -cls ",label_file," -gmx ",geneset_file,
-                " -collapse false -mode Max_probe -norm meandiv -nperm 1000 ",
-                "-permute gene_set -rnd_type no_balance -scoring_scheme weighted ",
-                "-rpt_label ", GSEA_output_name ," -metric Signal2Noise -sort real ",
-                "-order descending -include_only_symbols true -make_sets true ",
-                "-median false -num 100 -plot_top_x 20 -rnd_seed timestamp ",
-                "-save_rnd_lists false -set_max 100 -set_min 5 -zip_report false ",
-                "-out ", GSEA_folder, " -gui false")
-  system(gsea)
+# read in GSEA results
+gsea_con1 <- readr::read_tsv(Sys.glob(
+  file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
+            "gsea_report_for_con1_*.xls")), col_names = TRUE)
+gsea_con2 <- readr::read_tsv(Sys.glob(
+  file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
+            "gsea_report_for_con2_*.xls")), col_names = TRUE)
 
-  # read in GSEA results
-  gsea_con1 <- readr::read_tsv(Sys.glob(
-    file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
-              "gsea_report_for_con1_*.xls")), col_names = TRUE)
-  gsea_con2 <- readr::read_tsv(Sys.glob(
-    file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
-              "gsea_report_for_con2_*.xls")), col_names = TRUE)
-
-  # get significant results
-  gsea_con1_sig <- gsea_con1[gsea_con1$`FDR q-val` <= 0.05, ]
-  gsea_con2_sig <- gsea_con2[gsea_con2$`FDR q-val` <= 0.05, ]
-  KEGG_GSEA <- unique(c(gsea_con1_sig$NAME, gsea_con2_sig$NAME))
-
-} else {
-  stop("Please make sure the file path to the GSEA java program is correct!")
-
-}
+# get significant results
+gsea_con1_sig <- gsea_con1[gsea_con1$`FDR q-val` <= 0.05, ]
+gsea_con2_sig <- gsea_con2[gsea_con2$`FDR q-val` <= 0.05, ]
+KEGG_GSEA <- unique(c(gsea_con1_sig$NAME, gsea_con2_sig$NAME))
 
 ```
 
