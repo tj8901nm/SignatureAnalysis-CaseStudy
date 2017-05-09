@@ -310,11 +310,11 @@ visualize_gene_network(selected_signatures = "Node35pos",
 We also perform a GSEA analysis on this dataset.
 
 ```{r}
-# specifiy file path to the GSEA java program
-GSEA_file <- "gsea2-2.2.4.jar"
-if (!file.exists(GSEA_file)){
-  stop("Please check the file path to the GSEA java program and make sure
-       it is correct!")
+# attempt to get the file path to the GSEA java program
+GSEA_file <- Sys.glob("gsea2-*.jar")
+if (length(GSEA_file) != 1){
+  stop("Failed to detect the GSEA java file or detect more than one file in the
+       current folder. Please specify the correct file path to GSEA_file.")
 }
   
 # prefix of the folder that stores GSEA results
