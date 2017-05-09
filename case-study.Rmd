@@ -1,0 +1,467 @@
+---
+title: "ADAGE signature analysis - case study"
+author: "Jie Tan"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_vignette:
+    fig_width: 7
+    fig_height: 7
+vignette: >
+  %\VignetteIndexEntry{User input example}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+This script shows how we analyze the *∆anr* mutation dataset used as a case study
+in the ADAGE signature analysis paper. 
+
+# Data preparation
+Load in required libraries.
+
+```{r}
+library("ADAGEpath")
+library("DT")
+library("knitr")
+library("VennDiagram")
+library("readr")
+```
+
+Before any analysis, we need to specify the ADAGE model and the data compendium
+we want to use.
+
+```{r}
+model <- eADAGEmodel
+compendium <- PAcompendium
+probe_dist <- probedistribution
+```
+
+Let's load in the sample dataset that come with the package. It's expression data
+from *Pseudomonas aeruginosa* wild type and *∆anr* grown as biofilms on ∆F508 cystic
+fibrosis bronchial epithelial cells (CFBEs). Detailed information about
+the dataset can be found here
+[GSE67006](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE67006).
+All its CEL files are stored in the folder "./inst/extdata/anr".
+To load your own dataset, simply modify this input path.
+
+```{r}
+input_path <- system.file("extdata", "anr/", package = "ADAGEpath")
+data_raw <- load_dataset(input = input_path, isProcessed = FALSE,
+                         isRNAseq = FALSE, model = model,
+                         compendium = compendium, quantile_ref = probe_dist,
+                         norm01 = FALSE)
+```
+
+ADAGE only accepts expression values in the (0,1) range. We linearly transform
+expression values to be between 0 and 1 using the Pa compendium as the reference.
+
+```{r}
+data_normed <- zeroone_norm(input_data = data_raw, use_ref = TRUE,
+                            ref_data = compendium)
+```
+
+Now let's specify the phenotypes for each sample. It needs to be a character
+vector and has the same sample order as the expression data loaded above.
+
+```{r}
+data_pheno <- c("mt", "mt", "mt", "wt", "wt", "wt")
+```
+
+# ADAGE signature analysis
+
+## Activity calculation
+We calculate the activity of each signature for each sample in the dataset.
+
+```{r}
+data_activity <- calculate_activity(input_data = data_normed, model = model)
+```
+
+The returned `data_activity` is a `data.frame` with signature names in the first
+column and activity values per sample starting from the second column.
+
+## Active signature detection
+We want to find signatures that are differentially active between
+*anr* mutant and wildtype samples.
+We use [limma](https://bioconductor.org/packages/release/bioc/html/limma.html)
+to perform a differential activation test. limma is more robust
+than t-test when sample size is small. A two-group limma analysis is
+provided in the function `build_limma()`. You can also build other limma models
+to test signatures' activities when the experimental design is more complex.
+
+In the limma test, we will use "wt" as the control phenotype.
+Because there are a lot of signatures passing the significance cutoff, here we
+use the more stringent Bonferroni procedure instead of the Benjamini–Hochberg
+procedure for multiple hypothesis correction.
+
+```{r}
+limma_result <- build_limma(data_activity, phenotypes = data_pheno,
+                            control_pheno = "wt",
+                            use.bonferroni = TRUE)
+```
+
+To take both absolute activity difference and significance into account, we
+use pareto fronts to pick the most differentially active signatures. We extract
+differentially active signatures in the first 10 layers of pareto
+fronts. Modify `N_fronts` to get more or fewer signatures.
+
+```{r}
+active_sigs <- get_active_signatures(limma_result = limma_result,
+                                     pheno_group = "both", 
+                                     method = "pareto", N_fronts = 10)
+```
+
+Signatures that are differentially active between *anr* mutant and wildtype are:
+
+```{r}
+active_sigs
+```
+
+Plot each signature's activity change and significance in the `limma` test.
+
+```{r}
+plot_volcano(limma_result, highlight_signatures = active_sigs,
+             interactive = TRUE)
+```
+
+Look at how the activities of active signature vary across samples.
+
+```{r}
+plot_activity_heatmap(activity = data_activity, signatures = active_sigs)
+```
+
+Combining the volcano plot and the activity heatmap, Node35pos is the most
+active signature in anr mutant, followed by Node233pos, Node140pos.
+On the other side, Node38neg, Node31pos, Node269pos, Node205neg are most active
+in wildtype.
+
+## Overlapping signature removal
+To reduce the number of signatures to look at, we can check whether these active
+signatures overlap with each other.
+
+`plot_signature_overlap` creates a heatmap of odds ratios. The odds ratio
+represents the odds that two signatures share a specific number of genes.
+
+```{r}
+signature_similarity <- plot_signature_overlap(selected_signatures = active_sigs,
+                                               model = model)
+```
+
+Next we calculate the marginal activities of similar signatures. Marginal
+activity is defined as the activity of signature A after removing genes that it
+shares with signature B.
+
+```{r}
+marginal_activity <- calculate_marginal_activity(input_data = data_normed,
+                                                 selected_signatures = active_sigs,
+                                                 model = model)
+```
+
+Again, we build a limma model to test whether these marginal activities
+are still strongly different between two conditions.
+
+```{r}
+marginal_limma <- build_limma(input_data = marginal_activity,
+                              phenotypes = data_pheno, control_pheno = "wt")
+```
+
+Let's visualize the marginal activities in a matrix heatmap.  The value in this
+matrix represents the -log10 transformed adjusted p-value in
+the activation test when the effect of the column signature is removed from
+the row signature. Values in the diagonal of the heatmap are the activation
+significance of signatures themselves. Activation significance below the
+significance cutoff is marked by a cross sign.
+
+```{r}
+plot_marginal_activation(marginal_limma_result = marginal_limma,
+                         signature_order = colnames(signature_similarity),
+                         sig_cutoff = 0.05)
+
+```
+
+Based on this plot, we can see that Node119pos, Node214neg, and Node299pos are
+completely masked by Node191pos, because after removing Node191pos from them,
+they become non-significant. Node130pos and Node250neg are masked by
+Node31pos. Node285neg is masked by Node205neg.
+Node154pos is masked by Node57neg. Node63neg, Node39neg, Node228pos, Node158neg,
+Node140pos, Node269neg and Node31neg are masked by Node35pos. Node185neg and
+Node275pos are masked by Node67pos. Node278pos is masked by Node9pos.
+We can see that Node67pos, Node35pos, and Node233pos each has unique
+genes that make them still significant even after removing the effect
+of another signature. We can safely remove a signature being masked by another
+signature as long as we keep the second signature.
+
+```{r}
+unique_active_sigs <- remove_redundant_signatures(marginal_limma,
+                                                  sig_cutoff = 0.05)
+unique_active_sigs
+```
+
+Check out each signature's activity change and significance after removing
+overlapping signatures.
+
+```{r}
+plot_volcano(limma_result, highlight_signatures = unique_active_sigs,
+             interactive = TRUE)
+```
+
+Look at how the activities of active signature vary across samples after removing
+overlapping signatures.
+
+```{r}
+plot_activity_heatmap(activity = data_activity, signatures = unique_active_sigs)
+```
+
+## Active signature interpretation
+### Genes in signatures
+First of all, we can directly inspect gene composition of a signature or a group
+of signatures.
+
+```{r}
+DT::datatable(annotate_genes_in_signatures(selected_signatures = "Node35pos",
+                                           model = model))
+```
+
+### Associate pathways
+Next we can associate existing pathways to signatures. Here we use KEGG pathways.
+We retrive *Pseudomonas aeruginosa* KEGG terms from the
+[TRIBE](http://tribe.greenelab.com/#/home) webserver. TRIBE periodically updates
+KEGG terms. To reproduce results presented in the paper, we use the KEGG
+pathways that were retrieved from TRIBE on Aug. 12 2015. (not implemented yet)
+You can also repeat the analysis with up-to-date KEGG terms from TRIBE.
+TRIBE also supports Gene Ontology terms. You can simply replace "KEGG" with "GO"
+in the following steps to repeat the analysis with GO terms.
+
+```{r}
+KEGG <- fetch_geneset(type = "KEGG")
+# we only consider KEGG pathways with more than 5 genes and less than 100 genes
+# as meaningful pathways
+KEGG_subset <- KEGG[lengths(KEGG) >= 5 & lengths(KEGG) <= 100]
+```
+
+We associate active signatures to known KEGG pathways.
+
+```{r}
+pathway_association <- annotate_signatures_with_genesets(
+  selected_signatures = unique_active_sigs, model = model,
+  genesets = KEGG_subset)
+```
+
+Calculate the activity of associated pathways inside active signatures. This help
+differentiate active vs. non-active pathways assoicated with active signatures.
+
+```{r, fig.height= 10, fig.width=10}
+pathway_activity <- signature_geneset_activity(
+  signature_geneset_df = pathway_association[, c("signature", "geneset")],
+  gene_set_list = KEGG_subset, model = model, input_data = data_normed)
+plot_activity_heatmap(pathway_activity)
+```
+
+We run a limma test on pathway activities and find pathways that are truly
+active in this dataset.
+
+```{r}
+pathway_limma <- build_limma(pathway_activity, phenotypes = data_pheno,
+                             control_pheno = "wt", use.bonferroni = TRUE)
+# combine pathway association and pathway activation test results
+combined_result <- combine_geneset_outputs(
+  signature_geneset_association = pathway_association,
+  geneset_limma_result = pathway_limma)
+knitr::kable(combined_result, digits = 4, row.names = FALSE, align = "c")
+```
+
+### Gene-gene networks
+We next visualize how genes in the active signatures cluster in the
+ADAGE-derived gene-gene network.
+
+We calculate an expression fold change for each gene and pass it to the
+gene-gene network to show as node color. Again, we use limma to test
+differential expression and get the logFC.
+
+```{r}
+data_raw_limma <- build_limma(input_data = data_raw, phenotypes = data_pheno,
+                              control_pheno = "wt")
+# build a gene:fold change table from limma result
+gene_logFC <- data.frame(geneID = rownames(data_raw_limma),
+                         logFC = data_raw_limma$logFC)
+```
+
+Visualize the ADAGE gene-gene network of the active signatures.
+
+```{r}
+visualize_gene_network(selected_signatures = unique_active_sigs,
+                       gene_color_value = gene_logFC,
+                       model = model, cor_cutoff = 0.5,
+                       curated_pathways = KEGG)
+```
+
+We can also visualize one signature at a time. 
+
+```{r}
+visualize_gene_network(selected_signatures = "Node35pos",
+                       gene_color_value = gene_logFC,
+                       model = model, cor_cutoff = 0.5,
+                       curated_pathways = KEGG)
+```
+
+# A comparison between ADAGEpath and GSEA
+We also perform a GSEA analysis on this dataset.
+
+```{r}
+# specifiy file path to the GSEA java program
+GSEA_file <- "gsea2-2.2.4.jar"
+# prefix of the folder that stores GSEA results
+GSEA_output_name <- "GSEA_result"
+# folder to store GSEA data and results
+GSEA_folder <- "GSEA_data"
+
+# NOTICE!!! The folder cannot already exist.
+if (dir.exists(GSEA_folder)) {
+  stop("The GSEA folder already exists. Please give a new folder name.")
+}
+dir.create(GSEA_folder, showWarnings = TRUE)
+
+
+if (file.exists(GSEA_file)){
+
+  # create the class lable file for gsea
+  label_file <- file.path(GSEA_folder, "label.cls")
+  write(paste(length(data_pheno), length(unique(data_pheno)), 1, sep = " "),
+        file = label_file)
+  write("# con1 con2", file = label_file, append = TRUE)
+  write(paste(data_pheno, collapse = " "), label_file, append=TRUE)
+  
+  # create the gene expression file for gsea
+  expression_file <- file.path(GSEA_folder, "expression.txt")
+  readr::write_tsv(data_raw, expression_file, col_names = TRUE)
+
+  # create the gene set file for gsea
+  geneset_file <- file.path(GSEA_folder, "geneset.gmt")
+  write(paste(names(KEGG_subset)[1], "na", paste(unlist(KEGG_subset[[1]]),
+                                                 collapse = "\t"), sep = "\t"),
+        file = geneset_file)
+  invisible(sapply(2:length(KEGG_subset),
+                   function(x) write(paste(names(KEGG_subset)[x], "na",
+                                           paste(unlist(KEGG_subset[[x]]),
+                                                 collapse = "\t"), sep = "\t"),
+                                     file = geneset_file, append = TRUE)))
+
+  # run GSEA
+  gsea <- paste0("java -Xmx512m -cp ", GSEA_file, " xtools.gsea.Gsea -res ",
+                expression_file," -cls ",label_file," -gmx ",geneset_file,
+                " -collapse false -mode Max_probe -norm meandiv -nperm 1000 ",
+                "-permute gene_set -rnd_type no_balance -scoring_scheme weighted ",
+                "-rpt_label ", GSEA_output_name ," -metric Signal2Noise -sort real ",
+                "-order descending -include_only_symbols true -make_sets true ",
+                "-median false -num 100 -plot_top_x 20 -rnd_seed timestamp ",
+                "-save_rnd_lists false -set_max 100 -set_min 5 -zip_report false ",
+                "-out ", GSEA_folder, " -gui false")
+  system(gsea)
+
+  # read in GSEA results
+  gsea_con1 <- readr::read_tsv(Sys.glob(
+    file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
+              "gsea_report_for_con1_*.xls")), col_names = TRUE)
+  gsea_con2 <- readr::read_tsv(Sys.glob(
+    file.path(GSEA_folder, paste0(GSEA_output_name, ".Gsea*"),
+              "gsea_report_for_con2_*.xls")), col_names = TRUE)
+
+  # get significant results
+  gsea_con1_sig <- gsea_con1[gsea_con1$`FDR q-val` <= 0.05, ]
+  gsea_con2_sig <- gsea_con2[gsea_con2$`FDR q-val` <= 0.05, ]
+  KEGG_GSEA <- unique(c(gsea_con1_sig$NAME, gsea_con2_sig$NAME))
+
+} else {
+  stop("Please make sure the file path to the GSEA java program is correct!")
+
+}
+
+```
+
+Now let's compare the significant KEGG pathways in GSEA with the KEGG pathways
+associated with the active signatures.
+
+```{r}
+# GSEA automatically converts pathway names to upper case, so we also convert
+# the pathways identified by ADAGEpath.
+KEGG_ADAGE <- toupper(as.character(unique(pathway_association$geneset)))
+
+# make a venn diagram for pathway overlap
+grid.newpage()
+invisible(draw.pairwise.venn(length(KEGG_GSEA), length(KEGG_ADAGE),
+                             length(intersect(KEGG_GSEA, KEGG_ADAGE)),
+                             c("GSEA", "ADAGE"), fill = c("red", "blue")))
+```
+
+As we can see, GSEA and ADAGEpath agree on many pathways. Here we look into
+pathways significantly enriched in GSEA but not associated with chosen active
+signatures. We check whether they are assoicated with any ADAGE signatures and
+how differentially active the associated signatures are.
+
+```{r}
+# built a match table between normal case and upper case
+match_table <- data.frame(normal_case = names(KEGG_subset),
+                          upper_case = toupper(names(KEGG_subset)),
+                          stringsAsFactors = FALSE)
+
+# pathways enriched in GSEA but not associated with ADAGE signatures
+# in the top 10 layers of pareto fronts
+GSEA_only <- match_table$normal_case[match(setdiff(KEGG_GSEA, KEGG_ADAGE),
+                                           match_table$upper_case)]
+
+# check whether GSEA-only KEGG pathways are associated with any signatures
+# this step will take a while because it checks association between all signatures
+# and all pathways
+associated_sigs <- find_associated_signatures(input_genesets = GSEA_only,
+                                              model = model,
+                                              gene_set_list = KEGG_subset,
+                                              significance_cutoff = 0.05,
+                                              signature_limma_result = limma_result)
+associated_sigs <- unlist(associated_sigs)
+
+# see how these signatures perform in the activation test
+plot_volcano(limma_result, highlight_signatures = associated_sigs,
+             interactive = TRUE)
+```
+
+Here are pathways enriched in GSEA but not associated with any signatures:
+
+```{r}
+GSEA_only[is.na(associated_sigs)]
+```
+
+Here are pathways that were detected to be active in ADAGEpath but do not pass
+the significance cutoff in GSEA. Let's see how they perform in GSEA.
+
+```{r}
+ADAGE_active <- unique(combined_result$geneset[combined_result$adj.P.Val <= 0.05])
+ADAGE_only <- setdiff(toupper(ADAGE_active), KEGG_GSEA)
+ADAGE_only_GSEA <- rbind(gsea_con1[na.omit(match(ADAGE_only, gsea_con1$NAME)), ],
+                         gsea_con2[na.omit(match(ADAGE_only, gsea_con2$NAME)), ])
+knitr::kable(ADAGE_only_GSEA)
+```
+
+There are also signatures uncharacterized by KEGG (not associated with any
+exisiting KEGG pathway).
+
+```{r}
+uncharacterized_sigs <- setdiff(unique_active_sigs, pathway_association$signature)
+uncharacterized_sigs
+```
+
+Check the signature similarity of the uncharacterized signatures.
+
+```{r}
+plot_signature_overlap(selected_signatures = uncharacterized_sigs, model = model)
+```
+
+Visualize uncharacterized signatures in the gene-gene network.
+
+```{r}
+visualize_gene_network(selected_signatures = uncharacterized_sigs,
+                       gene_color_value = gene_logFC,
+                       model = model, cor_cutoff = 0.5,
+                       curated_pathways = KEGG)
+```
