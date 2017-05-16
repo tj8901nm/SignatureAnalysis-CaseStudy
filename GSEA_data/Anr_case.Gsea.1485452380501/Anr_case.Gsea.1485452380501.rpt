@@ -1,0 +1,31 @@
+producer_class	xtools.gsea.Gsea
+producer_timestamp	1485452380501
+param	collapse	false
+param	cls	/Users/jietan/Documents/Work/adage2-developing/pathway_analysis/results/Anr/AnrvsWT.cls#con1_versus_con2
+param	plot_top_x	20
+param	norm	meandiv
+param	save_rnd_lists	false
+param	median	false
+param	num	100
+param	scoring_scheme	weighted
+param	make_sets	true
+param	mode	Max_probe
+param	gmx	/Users/jietan/Documents/Work/adage2-developing/pathway_analysis/pseudomonas_KEGG_terms.gmt
+param	gui	false
+param	metric	Signal2Noise
+param	rpt_label	Anr_case
+param	help	false
+param	order	descending
+param	out	/Users/jietan/Dropbox (GreeneLab)/eADAGE_results/ADAGEpath paper
+param	permute	gene_set
+param	rnd_type	no_balance
+param	set_min	5
+param	include_only_symbols	true
+param	sort	real
+param	rnd_seed	timestamp
+param	nperm	1000
+param	zip_report	false
+param	set_max	100
+param	res	/Users/jietan/Documents/Work/adage2-developing/data_collection/testsets/Anr_gene.txt
+
+file	/Users/jietan/Dropbox (GreeneLab)/eADAGE_results/ADAGEpath paper/Anr_case.Gsea.1485452380501/index.html
