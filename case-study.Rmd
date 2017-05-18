@@ -19,7 +19,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 This script shows how we analyze the *∆anr* mutation dataset used as a case study
 in the ADAGE signature analysis paper. 
 
-# Data preparation
+## Data preparation
 Load in required libraries.
 
 ```{r}
@@ -70,9 +70,9 @@ vector and has the same sample order as the expression data loaded above.
 data_pheno <- c("mt", "mt", "mt", "wt", "wt", "wt")
 ```
 
-# ADAGE signature analysis
+## ADAGE signature analysis
 
-## Activity calculation
+### Activity calculation
 We calculate the activity of each signature for each sample in the dataset.
 
 ```{r}
@@ -82,7 +82,7 @@ data_activity <- calculate_activity(input_data = data_normed, model = model)
 The returned `data_activity` is a `data.frame` with signature names in the first
 column and activity values per sample starting from the second column.
 
-## Active signature detection
+### Active signature detection
 We want to find signatures that are differentially active between
 *anr* mutant and wildtype samples.
 We use [limma](https://bioconductor.org/packages/release/bioc/html/limma.html)
@@ -137,7 +137,7 @@ active signature in anr mutant, followed by Node233pos, Node140pos.
 On the other side, Node38neg, Node31pos, Node269pos, Node205neg are most active
 in wildtype.
 
-## Overlapping signature removal
+### Overlapping signature removal
 To reduce the number of signatures to look at, we can check whether these active
 signatures overlap with each other.
 
@@ -178,7 +178,6 @@ significance cutoff is marked by a cross sign.
 plot_marginal_activation(marginal_limma_result = marginal_limma,
                          signature_order = colnames(signature_similarity),
                          sig_cutoff = 0.05)
-
 ```
 
 Based on this plot, we can see that Node119pos, Node214neg, and Node299pos are
@@ -214,17 +213,19 @@ overlapping signatures.
 plot_activity_heatmap(activity = data_activity, signatures = unique_active_sigs)
 ```
 
-## Active signature interpretation
-### Genes in signatures
+### Active signature interpretation
+#### Genes in signatures
 First of all, we can directly inspect gene composition of a signature or a group
 of signatures.
 
 ```{r}
-DT::datatable(annotate_genes_in_signatures(selected_signatures = "Node35pos",
-                                           model = model))
+interested_sig <- "Node35pos"
+sig_annotation <- annotate_genes_in_signatures(selected_signatures = interested_sig,
+                                               model = model)
+DT::datatable(sig_annotation)
 ```
 
-### Associate pathways
+#### Associate pathways
 Next we can associate existing pathways to signatures. Here we use KEGG pathways.
 We retrive *Pseudomonas aeruginosa* KEGG terms from the
 [TRIBE](http://tribe.greenelab.com/#/home) webserver. TRIBE periodically updates
@@ -272,7 +273,7 @@ combined_result <- combine_geneset_outputs(
 knitr::kable(combined_result, digits = 4, row.names = FALSE, align = "c")
 ```
 
-### Gene-gene networks
+#### Gene-gene networks
 We next visualize how genes in the active signatures cluster in the
 ADAGE-derived gene-gene network.
 
@@ -306,7 +307,7 @@ visualize_gene_network(selected_signatures = "Node35pos",
                        curated_pathways = KEGG)
 ```
 
-# A comparison between ADAGEpath and GSEA
+## A comparison between ADAGEpath and GSEA
 We also perform a GSEA analysis on this dataset.
 
 ```{r}
@@ -315,6 +316,8 @@ run_GSEA <- function(GSEA_file, GSEA_folder, GSEA_output_name, data, phenotype,
                      geneset) {
 
   # create the class lable file for gsea
+  # for more details about cls file format, please refer to
+  # http://software.broadinstitute.org/cancer/software/gsea/wiki/index.php/Data_formats#Phenotype_Data_Formats
   label_file <- file.path(GSEA_folder, "label.cls")
   write(paste(length(phenotype), length(unique(phenotype)), 1, sep = " "),
         file = label_file)
@@ -326,10 +329,15 @@ run_GSEA <- function(GSEA_file, GSEA_folder, GSEA_output_name, data, phenotype,
   readr::write_tsv(data, expression_file, col_names = TRUE)
   
   # create the gene set file for gsea
+  # gmt file is a tab delimited file
+  # it's format is "geneset-name[tab]description[tab]genes separated by tab"
+  # here we fill description with na.
   geneset_file <- file.path(GSEA_folder, "geneset.gmt")
+  # write line 1
   write(paste(names(geneset)[1], "na", paste(unlist(geneset[[1]]),
-                                                 collapse = "\t"), sep = "\t"),
+                                             collapse = "\t"), sep = "\t"),
         file = geneset_file)
+  # write the rest lines
   invisible(sapply(2:length(geneset),
                    function(x) write(paste(names(geneset)[x], "na",
                                            paste(unlist(geneset[[x]]),
