@@ -16,7 +16,7 @@ vignette: >
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 ```
 
-This script shows how we analyze the *∆anr* mutation dataset used as a case study
+This script shows how we analyze the ∆*anr* mutation dataset used as a case study
 in the ADAGE signature analysis paper. 
 
 ## Data preparation
@@ -40,7 +40,7 @@ probe_dist <- probedistribution
 ```
 
 Let's load in the sample dataset that come with the package. It's expression data
-from *Pseudomonas aeruginosa* wild type and *∆anr* grown as biofilms on ∆F508 cystic
+from *Pseudomonas aeruginosa* wild type and ∆*anr* grown as biofilms on ∆F508 cystic
 fibrosis bronchial epithelial cells (CFBEs). Detailed information about
 the dataset can be found here
 [GSE67006](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE67006).
@@ -56,7 +56,8 @@ data_raw <- load_dataset(input = input_path, isProcessed = FALSE,
 ```
 
 ADAGE only accepts expression values in the (0,1) range. We linearly transform
-expression values to be between 0 and 1 using the Pa compendium as the reference.
+expression values to be between 0 and 1 using the *P.a.* compendium as the
+reference.
 
 ```{r}
 data_normed <- zeroone_norm(input_data = data_raw, use_ref = TRUE,
@@ -133,7 +134,7 @@ plot_activity_heatmap(activity = data_activity, signatures = active_sigs)
 ```
 
 Combining the volcano plot and the activity heatmap, Node35pos is the most
-active signature in anr mutant, followed by Node233pos, Node140pos.
+active signature in the *anr* mutant, followed by Node233pos, Node140pos.
 On the other side, Node38neg, Node31pos, Node269pos, Node205neg are most active
 in wildtype.
 
@@ -219,6 +220,8 @@ First of all, we can directly inspect gene composition of a signature or a group
 of signatures.
 
 ```{r}
+# interested_sig could also be a character vector storing several signature
+# names, e.g. interested_sig <- c("Node35pos", "Node233pos")
 interested_sig <- "Node35pos"
 sig_annotation <- annotate_genes_in_signatures(selected_signatures = interested_sig,
                                                model = model)
@@ -226,7 +229,7 @@ DT::datatable(sig_annotation)
 ```
 
 #### Associate pathways
-Next we can associate existing pathways to signatures. Here we use KEGG pathways.
+Next we can associate existing pathways with signatures. Here we use KEGG pathways.
 We retrive *Pseudomonas aeruginosa* KEGG terms from the
 [TRIBE](http://tribe.greenelab.com/#/home) webserver. TRIBE periodically updates
 KEGG terms. To reproduce results presented in the paper, we use the KEGG
@@ -242,7 +245,7 @@ KEGG <- fetch_geneset(type = "KEGG", access_date = "06-03-16")
 KEGG_subset <- KEGG[lengths(KEGG) >= 5 & lengths(KEGG) <= 100]
 ```
 
-We associate active signatures to known KEGG pathways.
+We associate active signatures with known KEGG pathways.
 
 ```{r}
 pathway_association <- annotate_signatures_with_genesets(
@@ -250,14 +253,14 @@ pathway_association <- annotate_signatures_with_genesets(
   genesets = KEGG_subset)
 ```
 
-Calculate the activity of associated pathways inside active signatures. This help
+Calculate the activity of associated pathways inside active signatures. This helps
 differentiate active vs. non-active pathways assoicated with active signatures.
 
-```{r, fig.height= 10, fig.width=10}
+```{r, fig.height= 10, fig.width=12}
 pathway_activity <- signature_geneset_activity(
   signature_geneset_df = pathway_association[, c("signature", "geneset")],
   gene_set_list = KEGG_subset, model = model, input_data = data_normed)
-plot_activity_heatmap(pathway_activity)
+plot_activity_heatmap(pathway_activity, is_pathway = TRUE)
 ```
 
 We run a limma test on pathway activities and find pathways that are truly
@@ -298,10 +301,10 @@ visualize_gene_network(selected_signatures = unique_active_sigs,
                        curated_pathways = KEGG)
 ```
 
-We can also visualize one signature at a time. 
+We can also visualize one signature at a time or a group of signatures.
 
 ```{r}
-visualize_gene_network(selected_signatures = "Node35pos",
+visualize_gene_network(selected_signatures = interested_sig,
                        gene_color_value = gene_logFC,
                        model = model, cor_cutoff = 0.5,
                        curated_pathways = KEGG)
@@ -406,33 +409,44 @@ Now let's compare the significant KEGG pathways in GSEA with the KEGG pathways
 associated with the active signatures.
 
 ```{r}
-# GSEA automatically converts pathway names to upper case, so we also convert
-# the pathways identified by ADAGEpath.
-KEGG_ADAGE <- toupper(as.character(unique(pathway_association$geneset)))
+# GSEA automatically converts pathway names to upper case, so we first
+# built a match table between normal case and upper case
+match_table <- data.frame(normal_case = names(KEGG_subset),
+                          upper_case = toupper(names(KEGG_subset)),
+                          stringsAsFactors = FALSE)
+# and then convert uppper case to normal case
+KEGG_GSEA <- match_table$normal_case[match(KEGG_GSEA, match_table$upper_case)]
+
+KEGG_ADAGE <- as.character(unique(pathway_association$geneset))
 
 # make a venn diagram for pathway overlap
 grid.newpage()
 invisible(draw.pairwise.venn(length(KEGG_GSEA), length(KEGG_ADAGE),
                              length(intersect(KEGG_GSEA, KEGG_ADAGE)),
-                             c("GSEA", "ADAGE"), fill = c("red", "blue")))
+                             c("GSEA", "ADAGEpath"), fill = c("red", "blue")))
 ```
 
-As we can see, GSEA and ADAGEpath agree on many pathways. Here we look into
-pathways significantly enriched in GSEA but not associated with chosen active
-signatures. We check whether they are assoicated with any ADAGE signatures and
-how differentially active the associated signatures are.
+As we can see, GSEA and ADAGEpath agree on many pathways. Pathways shared by
+ADAGEpath and GSEA are:
 
 ```{r}
-# built a match table between normal case and upper case
-match_table <- data.frame(normal_case = names(KEGG_subset),
-                          upper_case = toupper(names(KEGG_subset)),
-                          stringsAsFactors = FALSE)
+intersect(KEGG_GSEA, KEGG_ADAGE)
+```
 
+Next we look into
+pathways significantly enriched in GSEA but not associated with chosen active
+signatures. They are:
+
+```{r}
 # pathways enriched in GSEA but not associated with ADAGE signatures
 # in the top 10 layers of pareto fronts
-GSEA_only <- match_table$normal_case[match(setdiff(KEGG_GSEA, KEGG_ADAGE),
-                                           match_table$upper_case)]
+GSEA_only <- setdiff(KEGG_GSEA, KEGG_ADAGE)
+GSEA_only
+```
 
+We next check whether they are assoicated with any ADAGE signatures
+
+```{r}
 # check whether GSEA-only KEGG pathways are associated with any signatures
 # this step will take a while because it checks association between all signatures
 # and all pathways
@@ -442,11 +456,21 @@ associated_sigs <- find_associated_signatures(input_genesets = GSEA_only,
                                               significance_cutoff = 0.05,
                                               signature_limma_result = limma_result)
 associated_sigs <- unlist(associated_sigs)
+associated_sigs_df <- data.frame(pathway = GSEA_only, signature = associated_sigs)
+knitr::kable(associated_sigs_df)
+```
 
-# see how these signatures perform in the activation test
-plot_volcano(limma_result, highlight_signatures = associated_sigs,
+and check how differentially active the associated signatures are.
+
+```{r}
+# see how these signatures perform in the activation test together with
+# differentially active signatures on the top 10 pareto fronts
+plot_volcano(limma_result, highlight_signatures = c(associated_sigs, active_sigs),
              interactive = TRUE)
 ```
+
+As you can see, Node137pos, Node252neg, and Node113neg are very close to meet
+our differential activation cutoff.
 
 Here are pathways enriched in GSEA but not associated with any signatures:
 
@@ -454,16 +478,33 @@ Here are pathways enriched in GSEA but not associated with any signatures:
 GSEA_only[is.na(associated_sigs)]
 ```
 
-Here are pathways that were detected to be active in ADAGEpath but do not pass
-the significance cutoff in GSEA. Let's see how they perform in GSEA.
+Here are pathways that are associated with differentially active ADAGE
+signatures but do not pass the significance cutoff in GSEA.
+
+```{r}
+ADAGE_only <- setdiff(KEGG_ADAGE, KEGG_GSEA)
+ADAGE_only
+```
+
+Some of these pathways are detected to be differentially active, they are:
 
 ```{r}
 ADAGE_active <- unique(combined_result$geneset[combined_result$adj.P.Val <= 0.05])
-ADAGE_only <- setdiff(toupper(ADAGE_active), KEGG_GSEA)
-ADAGE_only_GSEA <- rbind(gsea_con1[na.omit(match(ADAGE_only, gsea_con1$NAME)), ],
-                         gsea_con2[na.omit(match(ADAGE_only, gsea_con2$NAME)), ])
+ADAGE_only_active <- setdiff(ADAGE_active, KEGG_GSEA)
+ADAGE_only_active
+```
+
+Let's see how they perform in GSEA.
+
+```{r}
+ADAGE_only_active <- toupper(ADAGE_only_active)
+ADAGE_only_GSEA <- rbind(gsea_con1[na.omit(match(ADAGE_only_active, gsea_con1$NAME)), ],
+                         gsea_con2[na.omit(match(ADAGE_only_active, gsea_con2$NAME)), ])
 knitr::kable(ADAGE_only_GSEA)
 ```
+
+As you can see, they achieved quite low p-values, though did not pass the cutoff
+after multiple hypothesis correction.
 
 There are also signatures uncharacterized by KEGG (not associated with any
 exisiting KEGG pathway).
